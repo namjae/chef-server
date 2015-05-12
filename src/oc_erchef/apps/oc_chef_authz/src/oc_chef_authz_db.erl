@@ -28,8 +28,7 @@
 
 -export([container_record_to_authz_id/2,
          fetch_container/3,
-         make_global_admin_group_name/1,
-         fetch_global_group_authz_id/3,
+         make_read_access_group_name/1,
          fetch_group_authz_id/3,
          fetch_group_sql/3,
          make_context/3,
@@ -345,24 +344,6 @@ fetch_container(#oc_chef_authz_context{otto_connection=Server,
             fetch_container_sql(Ctx, OrgId, ContainerName)
     end.
 
-make_global_admin_group_name(OrgName) ->
-  lists:flatten(io_lib:format("~s_global_admins", [OrgName])).
-
-%% TODO: the only global groups are global admins groups and this should only be used for those
-fetch_global_group_authz_id(#oc_chef_authz_context{otto_connection=Server, darklaunch = Darklaunch} = Ctx,
-                            OrgName, GroupName) ->
-    RealGroupName = list_to_binary(
-                      lists:flatten(
-                        io_lib:format("~s_~s", [OrgName, GroupName]))),
-    %% global admins are strictly related to organizations, so we'll trigger
-    %% whether the global admins group is in sql depending on where the org is
-    case xdarklaunch_req:is_enabled(<<"couchdb_organizations">>, Darklaunch) of
-        true ->
-            fetch_group_authz_id_couchdb(Server, undefined, RealGroupName);
-        false ->
-            fetch_group_authz_id_sql(Ctx, ?GLOBAL_PLACEHOLDER_ORG_ID, RealGroupName)
-    end.
-
 fetch_container_couchdb(Server, OrgId, ContainerName) ->
     case fetch_by_name(Server, OrgId, ContainerName, authz_container) of
         {ok, Container} ->
@@ -550,16 +531,33 @@ fetch_group_authz_id_sql(#oc_chef_authz_context{server_api_version = ApiVersion,
 %%  * in oc_chef_authz_groups
 %%  * in oc_chef_organization_policy
 %%
-fetch_global_admins(#oc_chef_authz_context{otto_connection=_Server,
-                                           darklaunch = Darklaunch} = Ctx,
-                    OrgName) ->
-    GlobalGroupName = make_global_admin_group_name(OrgName),
+fetch_read_access_group(#oc_chef_authz_context{} = Ctx, OrgName) ->
+    ReadAccessGroupName = make_read_access_group_name(OrgName),
+    case fetch_global_group(Ctx, ReadAccessGroupName) of
+        {not_found, authz_group} ->
+            %% For compatibility during provisioning, we return the global_admins group if
+            %% we don't find the read_access group This should allow the application to be
+            %% deployed before the migration is run.
+            GlobalAdminsGroupName = make_global_admins_group_name(OrgName),
+            fetch_global_group(Ctx, GlobalAdminsGroupName);
+        Other ->
+            Other
+    end.
+
+fetch_global_group(#oc_chef_authz_context{otto_connection=_Server,
+                                          darklaunch = Darklaunch} = Ctx, GroupName) ->
     case xdarklaunch_req:is_enabled(<<"couchdb_groups">>, Darklaunch) of
         true ->
-            throw({not_implemented, fetch_global_admins_couch});
+            throw({not_implemented, fetch_global_group_couch});
         false ->
-            fetch_group_sql(Ctx, ?GLOBAL_PLACEHOLDER_ORG_ID, GlobalGroupName)
+            fetch_group_sql(Ctx, ?GLOBAL_PLACEHOLDER_ORG_ID, GroupName)
     end.
+
+make_read_access_group_name(OrgName) ->
+  lists:flatten(io_lib:format("~s_read_access_group", [OrgName])).
+
+make_global_admins_group_name(OrgName) ->
+  lists:flatten(io_lib:format("~s_global_admins", [OrgName])).
 
 fetch_group_sql(#oc_chef_authz_context{reqid = ReqId, server_api_version = ApiVersion}, OrgId, Name) ->
     case stats_hero:ctime(ReqId, {chef_sql, fetch},
