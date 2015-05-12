@@ -80,9 +80,7 @@ validate_request('PUT', Req, #base_state{chef_db_context = DbContext,
       ok ->
             oc_chef_wm_acl:validate_authz_id(Req, State,
                                              AclState#acl_state{acl_data = Ace},
-                                             Type, OrgId, OrgName, DbContext);
-      _Other ->
-       ok
+                                             Type, OrgId, OrgName, DbContext)
     end.
 
 auth_info(Req, State) ->
