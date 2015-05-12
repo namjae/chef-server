@@ -74,13 +74,20 @@ validate_request('PUT', Req, #base_state{chef_db_context = DbContext,
     %% Make sure we have valid json before trying other checks
     %% Throws if invalid json is found
     check_json_validity(Part, Ace),
+    %% validate_authz_id will populate the ACL AuthzId, which is needed
+    %% for checking the ACL constraints; we need to run validate_authz_id
+    %% anyway, so go ahead and do so
+    {Req1, State1 = #base_state{resource_state = #acl_state{
+          authz_id = AuthzId}}} =
+                                  oc_chef_wm_acl:validate_authz_id(Req, State,
+                                                                   AclState#acl_state{acl_data = Ace},
+                                                                    Type, OrgId, OrgName, DbContext),
+
     %% Check if we're violating any constraints around modifying ACLs
     %% i.e. deleting default groups, etc.
-    case oc_chef_authz_acl_constraints:check_acl_constraints(Part, Ace) of
+    case oc_chef_authz_acl_constraints:check_acl_constraints(AuthzId, Type, Part, Ace) of
       ok ->
-            oc_chef_wm_acl:validate_authz_id(Req, State,
-                                             AclState#acl_state{acl_data = Ace},
-                                             Type, OrgId, OrgName, DbContext)
+        {Req1, State1}
     end.
 
 auth_info(Req, State) ->

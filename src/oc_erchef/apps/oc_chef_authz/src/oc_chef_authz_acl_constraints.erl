@@ -5,16 +5,21 @@
 
 -module(oc_chef_authz_acl_constraints).
 
--export([check_acl_constraints/2]).
+-export([check_acl_constraints/4]).
 
-check_acl_constraints(AclPerm, Ace) ->
-  check_admin_group_removal_from_grant_ace(AclPerm, Ace).
+check_acl_constraints(AuthzId, Type, AclPerm, Ace) ->
+  check_admin_group_removal_from_grant_ace(AuthzId, Type, AclPerm, Ace).
 
-check_admin_group_removal_from_grant_ace(AclPerm, Ace) ->
+check_admin_group_removal_from_grant_ace(AuthzId, Type, AclPerm, Ace) ->
   case AclPerm of
     <<"grant">> ->
+      ActorsAndGroups = ej:get({AclPerm}, Ace),
+      _Groups = ej:get({<<"groups">>}, ActorsAndGroups),
+      _ExistingAcl = oc_chef_authz_acl:fetch(Type, AuthzId),
       ok;
     _Other ->
       ok
   end.
+
+
 
