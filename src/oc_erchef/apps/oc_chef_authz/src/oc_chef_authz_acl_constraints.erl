@@ -8,7 +8,20 @@
 -export([check_acl_constraints/4]).
 
 check_acl_constraints(AuthzId, Type, AclPerm, Ace) ->
-  check_admin_group_removal_from_grant_ace(AuthzId, Type, AclPerm, Ace).
+  case lists:filtermap(fun(Check) -> apply_check(Check, AuthzId, Type, AclPerm, Ace) end, acl_checks()) of
+    [] ->
+      ok;
+    Failures ->
+      Failures
+  end.
+
+acl_checks() ->
+  [
+    fun check_admin_group_removal_from_grant_ace/4
+  ].
+
+apply_check(Check, AuthzId, Type, AclPerm, Ace) ->
+  Check(AuthzId, Type, AclPerm, Ace).
 
 check_admin_group_removal_from_grant_ace(AuthzId, Type, AclPerm, NewAce) ->
   %% It is necessary to pull the current ace and compare to the new ace.
@@ -21,7 +34,14 @@ check_admin_group_removal_from_grant_ace(AuthzId, Type, AclPerm, NewAce) ->
       NewGroups = extract_acl_groups(AclPerm, NewAce),
       CurrentAce = oc_chef_authz_acl:fetch(Type, AuthzId),
       CurrentGroups = extract_acl_groups(AclPerm, CurrentAce),
-      check_admin_group_removal(NewGroups, CurrentGroups);
+      case check_admin_group_removal(NewGroups, CurrentGroups) of
+        not_removed ->
+          false;
+        removed ->
+          %% Need a way to indicate the failure, but having the error message
+          %% this deep in the system likely isn't ideal
+          {true, "Admin Group removal from Grant ACE not permitted"}
+      end;
     _Other ->
       ok
   end.
@@ -32,13 +52,13 @@ check_admin_group_removal(CurrentGroups, NewGroups) ->
   %% the new group.
   case contains_admin_group(CurrentGroups) of
     false ->
-      ok;
+      not_removed;
     true ->
       case contains_admin_group(NewGroups) of
         true ->
-          ok;
+          not_removed;
         false ->
-          ok %% Actually, not okay, need to return something else
+          removed
       end
   end.
 
